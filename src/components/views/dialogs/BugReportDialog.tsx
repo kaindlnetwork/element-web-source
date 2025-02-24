@@ -5,7 +5,7 @@ Copyright 2019 The Matrix.org Foundation C.I.C.
 Copyright 2018 New Vector Ltd
 Copyright 2017 OpenMarket Ltd
 
-SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only
+SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE files in the repository root for full details.
 */
 
@@ -64,6 +64,11 @@ export default class BugReportDialog extends React.Component<IProps, IState> {
 
         this.unmounted = false;
         this.issueRef = React.createRef();
+    }
+
+    public componentDidMount(): void {
+        this.unmounted = false;
+        this.issueRef.current?.focus();
 
         // Get all of the extra info dumped to the console when someone is about
         // to send debug logs. Since this is a fire and forget action, we do
@@ -74,10 +79,6 @@ export default class BugReportDialog extends React.Component<IProps, IState> {
         defaultDispatcher.dispatch({
             action: Action.DumpDebugLogs,
         });
-    }
-
-    public componentDidMount(): void {
-        this.issueRef.current?.focus();
     }
 
     public componentWillUnmount(): void {
