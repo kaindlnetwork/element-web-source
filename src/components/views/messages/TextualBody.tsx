@@ -2,14 +2,14 @@
 Copyright 2024 New Vector Ltd.
 Copyright 2015-2021 The Matrix.org Foundation C.I.C.
 
-SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only
+SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { createRef, SyntheticEvent, MouseEvent } from "react";
-import ReactDOM from "react-dom";
-import { MsgType } from "matrix-js-sdk/src/matrix";
+import React, { createRef, type SyntheticEvent, type MouseEvent, StrictMode } from "react";
+import { MsgType, PushRuleKind } from "matrix-js-sdk/src/matrix";
 import { TooltipProvider } from "@vector-im/compound-web";
+import { globToRegexp } from "matrix-js-sdk/src/utils";
 
 import * as HtmlUtils from "../../../HtmlUtils";
 import { formatDate } from "../../../DateUtils";
@@ -17,8 +17,8 @@ import Modal from "../../../Modal";
 import dis from "../../../dispatcher/dispatcher";
 import { _t } from "../../../languageHandler";
 import SettingsStore from "../../../settings/SettingsStore";
-import { pillifyLinks, unmountPills } from "../../../utils/pillify";
-import { tooltipifyLinks, unmountTooltips } from "../../../utils/tooltipify";
+import { pillifyLinks } from "../../../utils/pillify";
+import { tooltipifyLinks } from "../../../utils/tooltipify";
 import { IntegrationManagers } from "../../../integrations/IntegrationManagers";
 import { isPermalinkHost, tryTransformPermalinkToLocalHref } from "../../../utils/permalinks/Permalinks";
 import { Action } from "../../../dispatcher/actions";
@@ -27,15 +27,17 @@ import QuestionDialog from "../dialogs/QuestionDialog";
 import MessageEditHistoryDialog from "../dialogs/MessageEditHistoryDialog";
 import EditMessageComposer from "../rooms/EditMessageComposer";
 import LinkPreviewGroup from "../rooms/LinkPreviewGroup";
-import { IBodyProps } from "./IBodyProps";
+import { type IBodyProps } from "./IBodyProps";
 import RoomContext from "../../../contexts/RoomContext";
 import AccessibleButton from "../elements/AccessibleButton";
 import { options as linkifyOpts } from "../../../linkify-matrix";
 import { getParentEventId } from "../../../utils/Reply";
 import { EditWysiwygComposer } from "../rooms/wysiwyg_composer";
-import { IEventTileOps } from "../rooms/EventTile";
+import { type IEventTileOps } from "../rooms/EventTile";
 import { MatrixClientPeg } from "../../../MatrixClientPeg";
 import CodeBlock from "./CodeBlock";
+import { Pill, PillType } from "../elements/Pill";
+import { ReactRootManager } from "../../../utils/react";
 
 interface IState {
     // the URLs (if any) to be previewed with a LinkPreviewWidget inside this TextualBody.
@@ -48,12 +50,12 @@ interface IState {
 export default class TextualBody extends React.Component<IBodyProps, IState> {
     private readonly contentRef = createRef<HTMLDivElement>();
 
-    private pills: Element[] = [];
-    private tooltips: Element[] = [];
-    private reactRoots: Element[] = [];
+    private pills = new ReactRootManager();
+    private tooltips = new ReactRootManager();
+    private reactRoots = new ReactRootManager();
 
     public static contextType = RoomContext;
-    public declare context: React.ContextType<typeof RoomContext>;
+    declare public context: React.ContextType<typeof RoomContext>;
 
     public state = {
         links: [],
@@ -80,12 +82,12 @@ export default class TextualBody extends React.Component<IBodyProps, IState> {
         // tooltipifyLinks AFTER calculateUrlPreview because the DOM inside the tooltip
         // container is empty before the internal component has mounted so calculateUrlPreview
         // won't find any anchors
-        tooltipifyLinks([content], this.pills, this.tooltips);
+        tooltipifyLinks([content], [...this.pills.elements, ...this.reactRoots.elements], this.tooltips);
 
         if (this.props.mxEvent.getContent().format === "org.matrix.custom.html") {
             // Handle expansion and add buttons
-            const pres = (ReactDOM.findDOMNode(this) as Element).getElementsByTagName("pre");
-            if (pres.length > 0) {
+            const pres = [...content.getElementsByTagName("pre")];
+            if (pres && pres.length > 0) {
                 for (let i = 0; i < pres.length; i++) {
                     // If there already is a div wrapping the codeblock we want to skip this.
                     // This happens after the codeblock was edited.
@@ -100,6 +102,16 @@ export default class TextualBody extends React.Component<IBodyProps, IState> {
                 }
             }
         }
+
+        // Highlight notification keywords using pills
+        const pushDetails = this.props.mxEvent.getPushDetails();
+        if (
+            pushDetails.rule?.enabled &&
+            pushDetails.rule.kind === PushRuleKind.ContentSpecific &&
+            pushDetails.rule.pattern
+        ) {
+            this.pillifyNotificationKeywords([content], this.regExpForKeywordPattern(pushDetails.rule.pattern));
+        }
     }
 
     private addCodeElement(pre: HTMLPreElement): void {
@@ -111,35 +123,34 @@ export default class TextualBody extends React.Component<IBodyProps, IState> {
     private wrapPreInReact(pre: HTMLPreElement): void {
         const root = document.createElement("div");
         root.className = "mx_EventTile_pre_container";
-        this.reactRoots.push(root);
 
         // Insert containing div in place of <pre> block
-        pre.parentNode?.replaceChild(root, pre);
+        pre.replaceWith(root);
 
-        ReactDOM.render(<CodeBlock onHeightChanged={this.props.onHeightChanged}>{pre}</CodeBlock>, root);
+        this.reactRoots.render(
+            <StrictMode>
+                <CodeBlock onHeightChanged={this.props.onHeightChanged}>{pre}</CodeBlock>
+            </StrictMode>,
+            root,
+            pre,
+        );
     }
 
     public componentDidUpdate(prevProps: Readonly<IBodyProps>): void {
         if (!this.props.editState) {
             const stoppedEditing = prevProps.editState && !this.props.editState;
             const messageWasEdited = prevProps.replacingEventId !== this.props.replacingEventId;
-            if (messageWasEdited || stoppedEditing) {
+            const urlPreviewChanged = prevProps.showUrlPreview !== this.props.showUrlPreview;
+            if (messageWasEdited || stoppedEditing || urlPreviewChanged) {
                 this.applyFormatting();
             }
         }
     }
 
     public componentWillUnmount(): void {
-        unmountPills(this.pills);
-        unmountTooltips(this.tooltips);
-
-        for (const root of this.reactRoots) {
-            ReactDOM.unmountComponentAtNode(root);
-        }
-
-        this.pills = [];
-        this.tooltips = [];
-        this.reactRoots = [];
+        this.pills.unmount();
+        this.tooltips.unmount();
+        this.reactRoots.unmount();
     }
 
     public shouldComponentUpdate(nextProps: Readonly<IBodyProps>, nextState: Readonly<IState>): boolean {
@@ -190,14 +201,16 @@ export default class TextualBody extends React.Component<IBodyProps, IState> {
                 const reason = node.getAttribute("data-mx-spoiler") ?? undefined;
                 node.removeAttribute("data-mx-spoiler"); // we don't want to recurse
                 const spoiler = (
-                    <TooltipProvider>
-                        <Spoiler reason={reason} contentHtml={node.outerHTML} />
-                    </TooltipProvider>
+                    <StrictMode>
+                        <TooltipProvider>
+                            <Spoiler reason={reason} contentHtml={node.outerHTML} />
+                        </TooltipProvider>
+                    </StrictMode>
                 );
 
-                ReactDOM.render(spoiler, spoilerContainer);
-                node.parentNode?.replaceChild(spoilerContainer, node);
+                this.reactRoots.render(spoiler, spoilerContainer, node);
 
+                node.replaceWith(spoilerContainer);
                 node = spoilerContainer;
             }
 
@@ -207,6 +220,55 @@ export default class TextualBody extends React.Component<IBodyProps, IState> {
 
             node = node.nextSibling as Element;
         }
+    }
+
+    /**
+     * Marks the text that activated a push-notification keyword pattern.
+     */
+    private pillifyNotificationKeywords(nodes: ArrayLike<Element>, exp: RegExp): void {
+        let node: Node | null = nodes[0];
+        while (node) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                const text = node.nodeValue;
+                if (!text) {
+                    node = node.nextSibling;
+                    continue;
+                }
+                const match = text.match(exp);
+                if (!match || match.length < 3) {
+                    node = node.nextSibling;
+                    continue;
+                }
+                const keywordText = match[2];
+                const idx = match.index! + match[1].length;
+                const before = text.substring(0, idx);
+                const after = text.substring(idx + keywordText.length);
+
+                const container = document.createElement("span");
+                const newContent = (
+                    <>
+                        {before}
+                        <TooltipProvider>
+                            <Pill text={keywordText} type={PillType.Keyword} />
+                        </TooltipProvider>
+                        {after}
+                    </>
+                );
+                this.reactRoots.render(newContent, container, node);
+
+                node.parentNode?.replaceChild(container, node);
+            } else if (node.childNodes && node.childNodes.length) {
+                this.pillifyNotificationKeywords(node.childNodes as NodeListOf<Element>, exp);
+            }
+
+            node = node.nextSibling;
+        }
+    }
+
+    private regExpForKeywordPattern(pattern: string): RegExp {
+        // Reflects the push notification pattern-matching implementation at
+        // https://github.com/matrix-org/matrix-js-sdk/blob/dbd7d26968b94700827bac525c39afff2c198e61/src/pushprocessor.ts#L570
+        return new RegExp("(^|\\W)(" + globToRegexp(pattern) + ")(\\W|$)", "i");
     }
 
     private findLinks(nodes: ArrayLike<Element>): string[] {
@@ -425,7 +487,7 @@ export default class TextualBody extends React.Component<IBodyProps, IState> {
         const stripReply = !mxEvent.replacingEvent() && !!getParentEventId(mxEvent);
 
         const htmlOpts = {
-            disableBigEmoji: isEmote || !SettingsStore.getValue<boolean>("TextualBody.enableBigEmoji"),
+            disableBigEmoji: isEmote || !SettingsStore.getValue("TextualBody.enableBigEmoji"),
             // Part of Replies fallback support
             stripReplyFallback: stripReply,
         };

@@ -2,7 +2,7 @@
 Copyright 2024 New Vector Ltd.
 Copyright 2022 The Matrix.org Foundation C.I.C.
 
-SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only
+SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE files in the repository root for full details.
 */
 
@@ -36,10 +36,10 @@ Please see LICENSE files in the repository root for full details.
  *                      list ops)
  */
 
-import { MatrixClient, EventType, AutoDiscovery, Method, timeoutSignal } from "matrix-js-sdk/src/matrix";
+import { type MatrixClient, EventType, AutoDiscovery, Method, timeoutSignal } from "matrix-js-sdk/src/matrix";
 import {
-    MSC3575Filter,
-    MSC3575List,
+    type MSC3575Filter,
+    type MSC3575List,
     MSC3575_STATE_KEY_LAZY,
     MSC3575_STATE_KEY_ME,
     MSC3575_WILDCARD,
@@ -229,7 +229,7 @@ export class SlidingSyncManager {
             subscriptions.delete(roomId);
         }
         const room = this.client?.getRoom(roomId);
-        let shouldLazyLoad = !this.client?.isRoomEncrypted(roomId);
+        let shouldLazyLoad = !(await this.client?.getCrypto()?.isEncryptionEnabledInRoom(roomId));
         if (!room) {
             // default to safety: request all state if we can't work it out. This can happen if you
             // refresh the app whilst viewing a room: we call setRoomVisible before we know anything

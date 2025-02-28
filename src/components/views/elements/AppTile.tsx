@@ -5,17 +5,17 @@ Copyright 2019 Michael Telatynski <7t3chguy@gmail.com>
 Copyright 2018 New Vector Ltd
 Copyright 2017 Vector Creations Ltd
 
-SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only
+SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { ContextType, createRef, CSSProperties, MutableRefObject, ReactNode } from "react";
+import React, { type ContextType, createRef, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
 import classNames from "classnames";
-import { IWidget, MatrixCapabilities } from "matrix-widget-api";
-import { Room, RoomEvent } from "matrix-js-sdk/src/matrix";
+import { type IWidget, MatrixCapabilities } from "matrix-widget-api";
+import { type Room, RoomEvent } from "matrix-js-sdk/src/matrix";
 import { KnownMembership } from "matrix-js-sdk/src/types";
 import { logger } from "matrix-js-sdk/src/logger";
-import { ApprovalOpts, WidgetLifecycle } from "@matrix-org/react-sdk-module-api/lib/lifecycles/WidgetLifecycle";
+import { type ApprovalOpts, WidgetLifecycle } from "@matrix-org/react-sdk-module-api/lib/lifecycles/WidgetLifecycle";
 import {
     OverflowHorizontalIcon,
     MinusIcon,
@@ -38,14 +38,14 @@ import { ElementWidget, StopGapWidget } from "../../../stores/widgets/StopGapWid
 import { showContextMenu, WidgetContextMenu } from "../context_menus/WidgetContextMenu";
 import WidgetAvatar from "../avatars/WidgetAvatar";
 import LegacyCallHandler from "../../../LegacyCallHandler";
-import { IApp, isAppWidget } from "../../../stores/WidgetStore";
+import { type IApp, isAppWidget } from "../../../stores/WidgetStore";
 import { Icon as PopoutIcon } from "../../../../res/img/external-link.svg";
 import { Container, WidgetLayoutStore } from "../../../stores/widgets/WidgetLayoutStore";
 import { OwnProfileStore } from "../../../stores/OwnProfileStore";
 import { UPDATE_EVENT } from "../../../stores/AsyncStore";
 import WidgetUtils from "../../../utils/WidgetUtils";
 import MatrixClientContext from "../../../contexts/MatrixClientContext";
-import { ActionPayload } from "../../../dispatcher/payloads";
+import { type ActionPayload } from "../../../dispatcher/payloads";
 import { Action } from "../../../dispatcher/actions";
 import { ElementWidgetCapabilities } from "../../../stores/widgets/ElementWidgetCapabilities";
 import { WidgetMessagingStore } from "../../../stores/widgets/WidgetMessagingStore";
@@ -116,7 +116,7 @@ interface IState {
 
 export default class AppTile extends React.Component<IProps, IState> {
     public static contextType = MatrixClientContext;
-    public declare context: ContextType<typeof MatrixClientContext>;
+    declare public context: ContextType<typeof MatrixClientContext>;
 
     public static defaultProps: Partial<IProps> = {
         waitForIframeLoad: true,
@@ -134,29 +134,20 @@ export default class AppTile extends React.Component<IProps, IState> {
     private iframe?: HTMLIFrameElement; // ref to the iframe (callback style)
     private allowedWidgetsWatchRef?: string;
     private persistKey: string;
-    private sgWidget: StopGapWidget | null;
+    private sgWidget?: StopGapWidget;
     private dispatcherRef?: string;
     private unmounted = false;
 
     public constructor(props: IProps, context: ContextType<typeof MatrixClientContext>) {
         super(props, context);
 
-        // Tiles in miniMode are floating, and therefore not docked
-        if (!this.props.miniMode) {
-            ActiveWidgetStore.instance.dockWidget(
-                this.props.app.id,
-                isAppWidget(this.props.app) ? this.props.app.roomId : null,
-            );
-        }
-
         // The key used for PersistedElement
         this.persistKey = getPersistKey(WidgetUtils.getWidgetUid(this.props.app));
         try {
             this.sgWidget = new StopGapWidget(this.props);
-            this.setupSgListeners();
         } catch (e) {
             logger.log("Failed to construct widget", e);
-            this.sgWidget = null;
+            this.sgWidget = undefined;
         }
 
         this.state = this.getNewState(props);
@@ -303,6 +294,20 @@ export default class AppTile extends React.Component<IProps, IState> {
     }
 
     public componentDidMount(): void {
+        this.unmounted = false;
+
+        // Tiles in miniMode are floating, and therefore not docked
+        if (!this.props.miniMode) {
+            ActiveWidgetStore.instance.dockWidget(
+                this.props.app.id,
+                isAppWidget(this.props.app) ? this.props.app.roomId : null,
+            );
+        }
+
+        if (this.sgWidget) {
+            this.setupSgListeners();
+        }
+
         // Only fetch IM token on mount if we're showing and have permission to load
         if (this.sgWidget && this.state.hasPermissionToLoad) {
             this.startWidget();
@@ -340,13 +345,13 @@ export default class AppTile extends React.Component<IProps, IState> {
         }
 
         // Widget action listeners
-        if (this.dispatcherRef) dis.unregister(this.dispatcherRef);
+        dis.unregister(this.dispatcherRef);
 
         if (this.props.room) {
             this.context.off(RoomEvent.MyMembership, this.onMyMembership);
         }
 
-        if (this.allowedWidgetsWatchRef) SettingsStore.unwatchSetting(this.allowedWidgetsWatchRef);
+        SettingsStore.unwatchSetting(this.allowedWidgetsWatchRef);
         OwnProfileStore.instance.removeListener(UPDATE_EVENT, this.onUserReady);
     }
 
@@ -374,7 +379,7 @@ export default class AppTile extends React.Component<IProps, IState> {
             this.startWidget();
         } catch (e) {
             logger.error("Failed to construct widget", e);
-            this.sgWidget = null;
+            this.sgWidget = undefined;
         }
     }
 
@@ -607,7 +612,7 @@ export default class AppTile extends React.Component<IProps, IState> {
     };
 
     public render(): React.ReactNode {
-        let appTileBody: JSX.Element;
+        let appTileBody: JSX.Element | undefined;
 
         // Note that there is advice saying allow-scripts shouldn't be used with allow-same-origin
         // because that would allow the iframe to programmatically remove the sandbox attribute, but
@@ -650,7 +655,7 @@ export default class AppTile extends React.Component<IProps, IState> {
                     <AppWarning errorMsg={_t("widget|error_loading")} />
                 </div>
             );
-        } else if (!this.state.hasPermissionToLoad && this.props.room) {
+        } else if (!this.state.hasPermissionToLoad && this.props.room && this.sgWidget) {
             // only possible for room widgets, can assert this.props.room here
             const isEncrypted = this.context.isRoomEncrypted(this.props.room.roomId);
             appTileBody = (
@@ -677,7 +682,7 @@ export default class AppTile extends React.Component<IProps, IState> {
                         <AppWarning errorMsg={_t("widget|error_mixed_content")} />
                     </div>
                 );
-            } else {
+            } else if (this.sgWidget) {
                 appTileBody = (
                     <>
                         <div className={appTileBodyClass} style={appTileBodyStyles}>

@@ -1,23 +1,26 @@
 /*
 Copyright 2019-2024 New Vector Ltd.
 
-SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only
+SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE files in the repository root for full details.
 */
 
 import React, {
-    InputHTMLAttributes,
-    SelectHTMLAttributes,
-    TextareaHTMLAttributes,
-    RefObject,
+    type InputHTMLAttributes,
+    type SelectHTMLAttributes,
+    type TextareaHTMLAttributes,
+    type RefObject,
     createRef,
-    ComponentProps,
+    type ComponentProps,
+    type MutableRefObject,
+    type RefCallback,
+    type Ref,
 } from "react";
 import classNames from "classnames";
 import { debounce } from "lodash";
 import { Tooltip } from "@vector-im/compound-web";
 
-import { IFieldState, IValidationResult } from "./Validation";
+import { type IFieldState, type IValidationResult } from "./Validation";
 
 // Invoke validation from user input (when typing, etc.) at most once every N ms.
 const VALIDATION_THROTTLE_MS = 200;
@@ -75,7 +78,7 @@ interface IProps {
 
 export interface IInputProps extends IProps, InputHTMLAttributes<HTMLInputElement> {
     // The ref pass through to the input
-    inputRef?: RefObject<HTMLInputElement>;
+    inputRef?: Ref<HTMLInputElement>;
     // The element to create. Defaults to "input".
     element: "input";
     // The input's value. This is a controlled component, so the value is required.
@@ -84,7 +87,7 @@ export interface IInputProps extends IProps, InputHTMLAttributes<HTMLInputElemen
 
 interface ISelectProps extends IProps, SelectHTMLAttributes<HTMLSelectElement> {
     // The ref pass through to the select
-    inputRef?: RefObject<HTMLSelectElement>;
+    inputRef?: Ref<HTMLSelectElement>;
     // To define options for a select, use <Field><option ... /></Field>
     element: "select";
     // The select's value. This is a controlled component, so the value is required.
@@ -93,7 +96,7 @@ interface ISelectProps extends IProps, SelectHTMLAttributes<HTMLSelectElement> {
 
 interface ITextareaProps extends IProps, TextareaHTMLAttributes<HTMLTextAreaElement> {
     // The ref pass through to the textarea
-    inputRef?: RefObject<HTMLTextAreaElement>;
+    inputRef?: Ref<HTMLTextAreaElement>;
     element: "textarea";
     // The textarea's value. This is a controlled component, so the value is required.
     value: string;
@@ -101,7 +104,7 @@ interface ITextareaProps extends IProps, TextareaHTMLAttributes<HTMLTextAreaElem
 
 export interface INativeOnChangeInputProps extends IProps, InputHTMLAttributes<HTMLInputElement> {
     // The ref pass through to the input
-    inputRef?: RefObject<HTMLInputElement>;
+    inputRef?: Ref<HTMLInputElement>;
     element: "input";
     // The input's value. This is a controlled component, so the value is required.
     value: string;
@@ -118,7 +121,17 @@ interface IState {
 
 export default class Field extends React.PureComponent<PropShapes, IState> {
     private readonly id: string;
-    private readonly _inputRef = createRef<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>();
+    private readonly _inputRef: MutableRefObject<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null> =
+        createRef();
+
+    /**
+     * When props.inputRef is a callback ref, we will pass callbackRef to the DOM element.
+     * This is so that other methods here can still access the DOM element via this._inputRef.
+     */
+    private readonly callbackRef: RefCallback<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> = (node) => {
+        this._inputRef.current = node;
+        (this.props.inputRef as RefCallback<unknown>)(node);
+    };
 
     public static readonly defaultProps = {
         element: "input",
@@ -230,7 +243,12 @@ export default class Field extends React.PureComponent<PropShapes, IState> {
     }
 
     private get inputRef(): RefObject<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> {
-        return this.props.inputRef ?? this._inputRef;
+        const inputRef = this.props.inputRef;
+        if (typeof inputRef === "function") {
+            // This is a callback ref, so return _inputRef which will point to the actual DOM element.
+            return this._inputRef;
+        }
+        return (inputRef ?? this._inputRef) as RefObject<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>;
     }
 
     private onTooltipOpenChange = (open: boolean): void => {
@@ -284,7 +302,7 @@ export default class Field extends React.PureComponent<PropShapes, IState> {
         const inputProps_: React.HTMLAttributes<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement> &
             React.ClassAttributes<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement> = {
             ...inputProps,
-            ref: this.inputRef,
+            ref: typeof this.props.inputRef === "function" ? this.callbackRef : this.inputRef,
         };
 
         const fieldInput = React.createElement(this.props.element, inputProps_, children);

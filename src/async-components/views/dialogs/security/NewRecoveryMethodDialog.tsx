@@ -3,11 +3,11 @@ Copyright 2024 New Vector Ltd.
 Copyright 2020 The Matrix.org Foundation C.I.C.
 Copyright 2018, 2019 New Vector Ltd
 
-SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only
+SPDX-License-Identifier: AGPL-3.0-only OR GPL-3.0-only OR LicenseRef-Element-Commercial
 Please see LICENSE files in the repository root for full details.
 */
 
-import React, { JSX, useEffect, useState } from "react";
+import React, { type JSX, useEffect, useState } from "react";
 
 import dis from "../../../../dispatcher/dispatcher";
 import { _t } from "../../../../languageHandler";
@@ -28,7 +28,7 @@ interface NewRecoveryMethodDialogProps {
     onFinished(): void;
 }
 
-// Export as default instead of a named export so that it can be dynamically imported with `Modal.createDialogAsync`
+// Export as default instead of a named export so that it can be dynamically imported with React lazy
 
 /**
  * Dialog to inform the user that a new recovery method has been detected.
